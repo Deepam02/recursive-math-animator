@@ -40,12 +40,27 @@ npx --yes clawhub@latest install recursive-maths-animator --workdir ~/.nanobot/w
 
 Then point your agent at `skills/recursive-maths-animator/SKILL.md` (or the folder) per your tool’s skill discovery rules.
 
-**Publish / update** (owner — requires `npx clawhub@latest login` once):
+**Publish / update** (owner):
 
-```bash
-cd /path/to/manim-video-skill
-npx --yes clawhub@latest publish recursive-maths-animator --slug recursive-maths-animator --version 1.0.0 --changelog "Your release notes"
-```
+1. Log in once (browser or token):
+
+   ```bash
+   npx --yes clawhub@latest login
+   # Non-interactive / CI:
+   # npx --yes clawhub@latest login --token "$CLAWHUB_TOKEN" --no-browser
+   ```
+
+2. From the **git repo root** that contains `recursive-maths-animator/`:
+
+   ```bash
+   cd /path/to/manim-video-skill
+   npx --yes clawhub@latest publish recursive-maths-animator \
+     --slug recursive-maths-animator \
+     --version 1.0.0 \
+     --changelog "Your release notes"
+   ```
+
+   If the CLI rejects the path, pass an **absolute** path to `recursive-maths-animator` instead.
 
 Bump `--version` on each publish (semver).
 
