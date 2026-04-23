@@ -50,17 +50,27 @@ Then point your agent at `skills/recursive-maths-animator/SKILL.md` (or the fold
    # npx --yes clawhub@latest login --token "$CLAWHUB_TOKEN" --no-browser
    ```
 
-2. From the **git repo root** that contains `recursive-maths-animator/`:
+2. **Change into the repository root** that contains the `recursive-maths-animator/` folder (this repo is often cloned as `manim-video-skill`). If you run publish from a parent directory like `growth/` without `cd`ing into that repo first, ClawHub returns **`Error: Path must be a folder`** because `recursive-maths-animator` is not next to your shell’s current directory.
 
    ```bash
    cd /path/to/manim-video-skill
-   npx --yes clawhub@latest publish recursive-maths-animator \
+   ls recursive-maths-animator/SKILL.md   # must succeed before publish
+   npx --yes clawhub@latest publish ./recursive-maths-animator \
      --slug recursive-maths-animator \
      --version 1.0.0 \
      --changelog "Your release notes"
    ```
 
-   If the CLI rejects the path, pass an **absolute** path to `recursive-maths-animator` instead.
+   From anywhere, you can pass an **absolute** path instead:
+
+   ```bash
+   npx --yes clawhub@latest publish "$HOME/repos/growth/manim-video-skill/recursive-maths-animator" \
+     --slug recursive-maths-animator \
+     --version 1.0.0 \
+     --changelog "Your release notes"
+   ```
+
+   Adjust the path to match where you cloned this repository.
 
 Bump `--version` on each publish (semver).
 
