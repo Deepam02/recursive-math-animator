@@ -4,6 +4,8 @@ Portable **Cursor** and **Claude Code** skill for [Manim](https://www.manim.comm
 
 The agent-facing instructions live in [`manim-video/SKILL.md`](manim-video/SKILL.md). Install by placing the `manim-video` folder in a skills directory (see below).
 
+**Behavior highlights:** `ManimProject.init()` seeds **`requirements.txt`**, **`DESIGN_THEME.md`**, **`assets/{images,svgs,fonts}`**, and **`exports/approvals/`**. Agents are instructed to confirm a **design theme** with the user before coding, keep dependencies in **`requirements.txt`**, and use **GIF previews** (`render_approval_gif`) for approval before final MP4 renders.
+
 ## Prerequisites
 
 - Python 3.9+
@@ -59,6 +61,7 @@ Restart the IDE or start a new agent session so the skill is picked up.
 ```text
 manim-video/
 ├── SKILL.md              # Instructions for the agent
+├── requirements.txt      # Template copied into new animation projects by ManimProject.init()
 ├── scripts/              # run_pipeline.py, check_environment.py
 └── references/           # manim_versioning, palette, manim_guide, optional Gemini TTS
 ```

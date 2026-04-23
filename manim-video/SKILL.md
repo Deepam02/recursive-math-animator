@@ -1,23 +1,30 @@
 ---
 name: manim-video
-description: Create Manim animations with optional voiceover (manim-voiceover), subtitles, and git-based scene versioning. Use for educational or technical motion graphics with narration, or when you need versioned Manim scenes with rollback and branch workflows.
+description: Create Manim animations with optional voiceover (manim-voiceover), git-based scene versioning, pinned requirements, organized asset folders, and GIF approval previews before final MP4. Use for educational or technical motion graphics; always clarify design theme with the user first.
 ---
 
 # Manim video (animation + voiceover + versioning)
 
 This skill ships helper code under `references/` (palette, optional Gemini TTS adapter, `manim_versioning.ManimProject`) and utilities under `scripts/`. Agents should point users at those paths when generating projects.
 
+## Operating principles (do these every time)
+
+1. **Design theme first** — Before writing Manim code, ask the user for mood, light/dark, palette (hex or brand refs), typography, motion feel, and any brand assets. Record answers in `DESIGN_THEME.md` (created by `ManimProject.init()`). If the user defers, propose a default theme and get explicit “OK”.
+2. **Pinned dependencies** — Every project keeps a root **`requirements.txt`** (seeded on `init()` from this skill’s template). When you add imports or optional stacks (e.g. Gemini), **update `requirements.txt`** and tell the user to `pip install -r requirements.txt`. For reproducible CI, suggest `pip freeze > requirements.lock.txt` after upgrades.
+3. **Assets live in `assets/`** — Put images, SVGs, and custom fonts under `assets/images`, `assets/svgs`, `assets/fonts`. Keep `scenes/` for Python only so diffs stay readable.
+4. **GIF before final MP4** — For stakeholder approval, produce a **low-quality GIF** (fast, easy to share in chat). Use `ManimProject.render_approval_gif("scene_1")` or `render(..., output_format="gif", export_approval_copy=True)`. After sign-off, render **`output_format="movie"`** (default) at the target quality.
+
 ## Requirements
 
 - **Python** 3.9+
-- **manim** — `pip install manim`
+- **manim** — `pip install manim` (versions pinned in project `requirements.txt`)
 - **manim-voiceover** with a TTS backend — e.g. `pip install "manim-voiceover[gtts]"` (uses network for gTTS unless you switch engine)
 - **ffmpeg** — with `libx264` and `libass` if you burn subtitles (see `scripts/run_pipeline.py`)
 - **git** — for `ManimProject` versioning commands
 
 Optional:
 
-- **google-genai** — only if using `references/gemini_tts_service.py` (set `GEMINI_API_KEY`)
+- **google-genai** — only if using `references/gemini_tts_service.py` (set `GEMINI_API_KEY`); uncomment in `requirements.txt` when used.
 
 ## Using `references/` from your project
 
@@ -82,9 +89,20 @@ project.branch("scene_1", "review-alice")  # Creates branch, doesn't affect main
 
 ## Project structure
 
+After `ManimProject.init()`, the layout includes dependency and theme files plus asset and approval folders:
+
 ```
 my_animation/
 ├── .git/
+├── requirements.txt       # Pinned Manim / voiceover; extend when you add packages
+├── DESIGN_THEME.md        # User’s theme answers — fill via conversation before coding
+├── assets/
+│   ├── README.md
+│   ├── images/
+│   ├── svgs/
+│   └── fonts/
+├── exports/
+│   └── approvals/         # GIF (or other) previews for sign-off
 ├── scenes/
 │   ├── scene_1/
 │   │   ├── scene_1.py
@@ -98,7 +116,8 @@ my_animation/
 │       ├── palette.py
 │       └── utils.py
 ├── media/
-│   └── scene_1_v2.mp4
+│   ├── scene_1_v2.mp4
+│   └── scene_1_v2.gif     # when you render GIF previews
 └── project.json
 ```
 
@@ -226,15 +245,23 @@ Defined in `references/soft_enterprise_palette.py` — import `SoftColors` and `
 ## Rendering
 
 ```bash
-# Draft quality
-manim -ql scene.py SceneClass --disable_caching
+# Draft MP4
+manim -ql scene.py SceneClass --format movie --disable_caching
 
-# High quality
-manim -qh scene.py SceneClass --disable_caching
+# Stakeholder approval GIF (small, easy to share)
+manim -ql scene.py SceneClass --format gif --disable_caching
 
-# Versioning helper
-project.render("scene_1", quality="high")
+# High quality final MP4
+manim -qh scene.py SceneClass --format movie --disable_caching
+
+# Versioning helper — final pass
+project.render("scene_1", quality="high", output_format="movie")
+
+# Versioning helper — approval GIF into exports/approvals/ (no auto-commit)
+project.render_approval_gif("scene_1")
 ```
+
+If your Manim build errors on `--format`, upgrade Manim (Community ≥ 0.18) or use a two-step pipeline: render draft MP4, then `ffmpeg` to GIF (document in project README if needed).
 
 ## Pipeline helper (optional)
 
@@ -248,13 +275,15 @@ project.render("scene_1", quality="high")
 
 ## Best practices
 
-1. Version deliberately: use commits per meaningful render.
-2. Use branches for experiments before merging to main line.
-3. Tag approvals when a cut is final.
-4. Keep scenes independently renderable.
-5. Shared utilities live under `scenes/shared/`.
-6. Keep voiceover text TTS-friendly (plain punctuation, avoid noisy symbols).
-7. Target ~10–15s per scene for short-form vertical if that is the deliverable.
+1. **Theme in writing** — `DESIGN_THEME.md` should reflect what the user agreed to; link palette choices to `SoftColors` or a project palette module under `scenes/shared/`.
+2. **Requirements drift** — Any new `pip` dependency must appear in `requirements.txt` the same change set.
+3. Version deliberately: use commits per meaningful **final** render; GIF previews may skip auto-commit (see `render_approval_gif`).
+4. Use branches for experiments before merging to main line.
+5. Tag approvals when a cut is final (`project.tag(...)`).
+6. Keep scenes independently renderable.
+7. Shared utilities live under `scenes/shared/`; binaries only under `assets/`.
+8. Keep voiceover text TTS-friendly (plain punctuation, avoid noisy symbols).
+9. Target ~10–15s per scene for short-form vertical if that is the deliverable.
 
 ## Troubleshooting
 

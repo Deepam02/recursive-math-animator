@@ -3,19 +3,59 @@ Manim Project Versioning System
 Git-based version control for Manim animation projects
 """
 
-import os
 import json
 import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
 
 
 def _default_scene_class_name(scene_name: str) -> str:
     """Map a scene slug to a Manim class name (e.g. scene_1 -> Scene1, intro -> Intro)."""
     parts = scene_name.replace("-", "_").split("_")
     return "".join(p.capitalize() for p in parts if p)
+
+
+# Written to new projects by init() when requirements.txt is missing.
+# Keep in sync with ../requirements.txt in this skill package.
+_REQUIREMENTS_BOILERPLATE = """# Pin in your project; bump after upgrades.
+#   pip install -r requirements.txt
+# Optional lockfile for CI: pip freeze > requirements.lock.txt
+
+manim>=0.18.0
+manim-voiceover[gtts]>=0.3.1
+
+# Optional: Gemini TTS — uncomment if you use references/gemini_tts_service.py
+# google-genai>=1.0.0
+"""
+
+# Stakeholder signs off on motion and palette using GIF previews before final MP4.
+_DESIGN_THEME_BOILERPLATE = """# Design theme
+
+Fill this **before** writing scene code. If the user has not specified a theme, **ask**
+for these choices explicitly.
+
+## Questions to ask
+
+| Topic | Prompt |
+|-------|--------|
+| Mood | Overall feel (e.g. minimal clinical, playful, cinematic, brutalist). |
+| Light / dark | Light mode, dark mode, or high-contrast either way. |
+| Palette | Primary, accent, background hex codes (or reference brand guidelines). |
+| Typography | Title font, body font, or “system default / Manim default”. |
+| Motion | Snappy vs floaty; calm vs energetic; any easing preferences. |
+| Brand assets | Paths under `assets/` (logo, watermark, icon set). |
+| Deliverable | Aspect ratio (16:9, 9:16), target length, platform (web, social). |
+
+## Locked decisions
+
+- Mood:
+- Palette:
+- Typography:
+- Motion:
+- Notes:
+"""
 
 
 class ManimProject:
@@ -30,12 +70,54 @@ class ManimProject:
         self.config_path = self.project_path / "project.json"
         
     def init(self) -> None:
-        """Initialize project with git repository and folder structure"""
+        """Initialize project with git repository and folder structure.
+
+        Creates:
+        - ``assets/{images,svgs,fonts}`` for static art (keep binaries out of ``scenes/``).
+        - ``exports/approvals`` for low-res GIFs used to sign off motion before final MP4.
+        - ``requirements.txt`` (canonical Manim + voiceover pins) unless already present.
+        - ``DESIGN_THEME.md`` template unless already present — agents must fill with user.
+        """
         # Create directories
         self.project_path.mkdir(parents=True, exist_ok=True)
         self.scenes_path.mkdir(exist_ok=True)
         self.media_path.mkdir(exist_ok=True)
         (self.scenes_path / "shared").mkdir(exist_ok=True)
+
+        # Static assets stay here; scene code references them by relative path.
+        assets_root = self.project_path / "assets"
+        for sub in ("images", "svgs", "fonts"):
+            (assets_root / sub).mkdir(parents=True, exist_ok=True)
+        assets_readme = assets_root / "README.md"
+        if not assets_readme.exists():
+            assets_readme.write_text(
+                "# Assets\n\n"
+                "Place **binary and static** files here so `scenes/` stays code-only.\n\n"
+                "- `images/` — PNG, JPG, WebP\n"
+                "- `svgs/` — vector sources\n"
+                "- `fonts/` — custom font files if not relying on system fonts\n\n"
+                "From a scene file under `scenes/<name>/`, reference images as e.g. "
+                "`../../assets/images/logo.png`.\n",
+                encoding="utf-8",
+            )
+
+        # GIF previews for stakeholder approval (fast to share in chat / email).
+        approvals = self.project_path / "exports" / "approvals"
+        approvals.mkdir(parents=True, exist_ok=True)
+
+        req_file = self.project_path / "requirements.txt"
+        if not req_file.exists():
+            bundled = Path(__file__).resolve().parent.parent / "requirements.txt"
+            body = (
+                bundled.read_text(encoding="utf-8")
+                if bundled.exists()
+                else _REQUIREMENTS_BOILERPLATE
+            )
+            req_file.write_text(body, encoding="utf-8")
+
+        theme_file = self.project_path / "DESIGN_THEME.md"
+        if not theme_file.exists():
+            theme_file.write_text(_DESIGN_THEME_BOILERPLATE, encoding="utf-8")
         
         # Initialize git repo
         if not (self.project_path / ".git").exists():
@@ -127,11 +209,18 @@ class ManimProject:
         quality: str = "medium",
         auto_commit: bool = True,
         scene_class: Optional[str] = None,
+        output_format: Literal["movie", "gif"] = "movie",
+        export_approval_copy: bool = False,
     ) -> str:
         """Render scene and optionally commit.
 
         scene_class: Manim scene class name inside the file. If omitted, derived from
         scene_name (scene_1 -> Scene1). Override when your class name does not match.
+
+        output_format: ``movie`` (MP4) or ``gif`` for lightweight previews.
+
+        export_approval_copy: If True, copy the output into ``exports/approvals/`` with
+        a clear filename for stakeholder sign-off (typical with ``output_format='gif'``).
         """
         scene_path = self._get_scene_path(scene_name, branch)
         scene_file = scene_path / f"{scene_name}.py"
@@ -143,15 +232,23 @@ class ManimProject:
         quality_flag = {"low": "-ql", "medium": "-qm", "high": "-qh"}.get(quality, "-qm")
         
         cls = scene_class or _default_scene_class_name(scene_name)
-        # Manim CLI requires the scene class name after the file path.
-        cmd = ["manim", quality_flag, str(scene_file), cls, "--disable_caching"]
+        # Manim CLI: scene class after file path; --format gif for approval loops.
+        cmd = [
+            "manim",
+            quality_flag,
+            str(scene_file),
+            cls,
+            "--format",
+            output_format,
+            "--disable_caching",
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.project_path)
         
         if result.returncode != 0:
             print(f"Render error: {result.stderr}")
             raise RuntimeError(f"Render failed for {scene_name}")
         
-        # Find output file
+        # Find output file (MP4 for movie, GIF for gif)
         output_dir = self.project_path / "media" / "videos" / scene_name
         if quality == "high":
             output_dir = output_dir / "1080p60"
@@ -160,35 +257,72 @@ class ManimProject:
         else:
             output_dir = output_dir / "480p15"
         
-        # Get the mp4 file
-        mp4_files = list(output_dir.glob("*.mp4"))
-        if not mp4_files:
-            raise FileNotFoundError("No output video found")
+        suffix = ".gif" if output_format == "gif" else ".mp4"
+        candidates = sorted(
+            output_dir.glob(f"*{suffix}"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            raise FileNotFoundError(f"No output {suffix} found under {output_dir}")
         
-        source_video = mp4_files[0]
+        source_media = candidates[0]
         
         # Copy to media with version tag
         config = self._load_config()
         version = config["scenes"][scene_name]["current_version"]
         branch_tag = f"_{branch}" if branch else ""
-        dest_name = f"{scene_name}{branch_tag}_v{version}.mp4"
+        dest_name = f"{scene_name}{branch_tag}_v{version}{suffix}"
         dest_path = self.media_path / dest_name
         
-        shutil.copy(source_video, dest_path)
+        shutil.copy(source_media, dest_path)
         
-        # Create symlink to latest
-        latest_link = self.media_path / f"{scene_name}{branch_tag}_latest.mp4"
+        # Symlink to latest (same extension as this render)
+        latest_link = self.media_path / f"{scene_name}{branch_tag}_latest{suffix}"
         if latest_link.exists() or latest_link.is_symlink():
             latest_link.unlink()
-        latest_link.symlink_to(dest_path)
+        try:
+            latest_link.symlink_to(dest_path)
+        except OSError:
+            # Windows or filesystems without symlink support — duplicate file instead.
+            shutil.copy2(dest_path, latest_link)
+
+        if export_approval_copy:
+            approval_dir = self.project_path / "exports" / "approvals"
+            approval_dir.mkdir(parents=True, exist_ok=True)
+            approval_name = f"{scene_name}{branch_tag}_v{version}_approval{suffix}"
+            shutil.copy(dest_path, approval_dir / approval_name)
+            print(f"✓ Approval copy: {approval_dir / approval_name}")
         
         # Auto-commit if on main
         if auto_commit and not branch:
             self._git("add", ".")
-            self._git("commit", "-m", f"{scene_name} v{version}: render", "--allow-empty")
+            label = "gif preview" if output_format == "gif" else "render"
+            self._git("commit", "-m", f"{scene_name} v{version}: {label}", "--allow-empty")
         
         print(f"✓ Rendered: {dest_path}")
         return str(dest_path)
+
+    def render_approval_gif(
+        self,
+        scene_name: str,
+        branch: Optional[str] = None,
+        scene_class: Optional[str] = None,
+    ) -> str:
+        """Low-quality GIF in ``exports/approvals/`` for stakeholder sign-off.
+
+        Does not auto-commit (keeps git history focused on approved MP4 passes).
+        After approval, render with ``output_format='movie'`` and higher quality.
+        """
+        return self.render(
+            scene_name,
+            branch=branch,
+            quality="low",
+            auto_commit=False,
+            scene_class=scene_class,
+            output_format="gif",
+            export_approval_copy=True,
+        )
     
     def versions(self, scene_name: str) -> List[Dict]:
         """List all versions of a scene"""
